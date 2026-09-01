@@ -1,0 +1,43 @@
+{
+  "updatedAt": "2026-09-01T19:21:00+03:00",
+  "source": "https://beit-yerach.shahaf.site/",
+  "note": "נתוני הדגמה ראשוניים מכיתה ט1 בלבד. הריצו scrape_shahaf.py לאיסוף מלא.",
+  "classes": ["ט1"],
+  "periods": [
+    {"hour":0,"start":"07:30","end":"08:45"},{"hour":1,"start":"08:45","end":"09:30"},{"hour":2,"start":"09:35","end":"10:20"},{"hour":3,"start":"10:35","end":"11:20"},{"hour":4,"start":"11:25","end":"12:10"},{"hour":5,"start":"12:35","end":"13:20"},{"hour":6,"start":"13:25","end":"14:10"},{"hour":7,"start":"14:30","end":"15:10"},{"hour":8,"start":"15:10","end":"15:45"},{"hour":9,"start":"15:50","end":"16:50"}
+  ],
+  "records": [
+    {"teacher":"ויסוצקי נעה","day":"שלישי","hour":1,"subject":"שעת מחנכ.ת","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"ויסוצקי נעה","day":"רביעי","hour":1,"subject":"הבעה עברית","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"אראל דנה","day":"חמישי","hour":1,"subject":"ספרות","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"קורזק גילה","day":"שלישי","hour":2,"subject":"חנ\"ג","group":"ט1","classroom":"","sourceClass":"ט1"},
+    {"teacher":"לוי נדב","day":"שלישי","hour":2,"subject":"חנ\"ג","group":"ט1","classroom":"","sourceClass":"ט1"},
+    {"teacher":"ויסוצקי נעה","day":"רביעי","hour":2,"subject":"הבעה עברית","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"ויסוצקי נעה","day":"חמישי","hour":2,"subject":"שעת מחנכ.ת","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"סלומון שלומי","day":"שלישי","hour":3,"subject":"אנגלית","group":"ט1","classroom":"מחשבים 4","sourceClass":"ט1"},
+    {"teacher":"ברקלי אביבה","day":"שלישי","hour":3,"subject":"אנגלית","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"אורחוב דריה","day":"שלישי","hour":3,"subject":"אנגלית","group":"ט1","classroom":"ט11","sourceClass":"ט1"},
+    {"teacher":"גלעד דני","day":"רביעי","hour":3,"subject":"מתמטיקה","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"פרנקל רונית","day":"רביעי","hour":3,"subject":"מתמטיקה","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"בלין שלח יונתן","day":"חמישי","hour":3,"subject":"של\"ח","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"אורחוב דריה","day":"שלישי","hour":4,"subject":"אנגלית","group":"ט1","classroom":"ט11","sourceClass":"ט1"},
+    {"teacher":"ברקלי אביבה","day":"שלישי","hour":4,"subject":"אנגלית","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"סלומון שלומי","day":"שלישי","hour":4,"subject":"אנגלית","group":"ט1","classroom":"מחשבים 4","sourceClass":"ט1"},
+    {"teacher":"נוסבאום אופיר","day":"רביעי","hour":4,"subject":"מתמטיקה","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"פרנקל רונית","day":"רביעי","hour":4,"subject":"מתמטיקה","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"גלעד דני","day":"חמישי","hour":4,"subject":"מתמטיקה","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"פרנקל רונית","day":"חמישי","hour":4,"subject":"מתמטיקה","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"אראל דנה","day":"שלישי","hour":5,"subject":"ספרות","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"שנהר מירי","day":"רביעי","hour":5,"subject":"השכלה כללית","group":"ט1","classroom":"","sourceClass":"ט1"},
+    {"teacher":"סספורטס שירה","day":"רביעי","hour":5,"subject":"השכלה כללית","group":"ט1","classroom":"חדר אומנות","sourceClass":"ט1"},
+    {"teacher":"שטיין עדי","day":"רביעי","hour":5,"subject":"השכלה כללית","group":"ט1","classroom":"תאטרון","sourceClass":"ט1"},
+    {"teacher":"אור דני","day":"רביעי","hour":5,"subject":"השכלה כללית","group":"ט1","classroom":"סדנה פתוחה","sourceClass":"ט1"},
+    {"teacher":"שטיין עדי","day":"חמישי","hour":5,"subject":"השכלה כללית","group":"ט1","classroom":"תאטרון","sourceClass":"ט1"},
+    {"teacher":"סספורטס שירה","day":"חמישי","hour":5,"subject":"השכלה כללית","group":"ט1","classroom":"חדר אומנות","sourceClass":"ט1"},
+    {"teacher":"שנהר מירי","day":"חמישי","hour":5,"subject":"השכלה כללית","group":"ט1","classroom":"","sourceClass":"ט1"},
+    {"teacher":"אור דני","day":"חמישי","hour":5,"subject":"השכלה כללית","group":"ט1","classroom":"סדנה פתוחה","sourceClass":"ט1"},
+    {"teacher":"בן בסט דניאל","day":"שלישי","hour":6,"subject":"אזרחות","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"ליסי דניאל","day":"רביעי","hour":6,"subject":"היסטוריה","group":"ט1","classroom":"ט1","sourceClass":"ט1"},
+    {"teacher":"בן בסט דניאל","day":"חמישי","hour":6,"subject":"אזרחות","group":"ט1","classroom":"ט1","sourceClass":"ט1"}
+  ]
+}

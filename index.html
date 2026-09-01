@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0f4c81" />
+  <title>מערכות מורים | בית ירח</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">בי</div>
+      <div>
+        <h1>מערכות מורים</h1>
+        <p>בית ירח · מערכת אישית ומציאת זמן משותף</p>
+      </div>
+    </div>
+    <div id="dataStatus" class="status-pill">טוען נתונים…</div>
+  </header>
+
+  <main class="app-shell">
+    <nav class="tabs" aria-label="ניווט ראשי">
+      <button class="tab active" data-tab="teacher" type="button">👤 מערכת מורה</button>
+      <button class="tab" data-tab="common" type="button">👥 מציאת זמן משותף</button>
+    </nav>
+
+    <section id="teacherView" class="view active">
+      <div class="toolbar card">
+        <label for="teacherSelect">בחרו מורה</label>
+        <div class="teacher-picker">
+          <input id="teacherSearch" type="search" placeholder="חיפוש לפי שם מורה…" autocomplete="off" />
+          <select id="teacherSelect" aria-label="בחירת מורה"></select>
+        </div>
+      </div>
+
+      <div class="summary-row">
+        <div class="mini-card"><span>מורה</span><strong id="teacherName">—</strong></div>
+        <div class="mini-card"><span>שיעורים השבוע</span><strong id="lessonCount">0</strong></div>
+        <div class="mini-card"><span>שעות פנויות</span><strong id="freeCount">0</strong></div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-headline">
+          <div>
+            <h2>מערכת שבועית</h2>
+            <p>כיתת הלימוד שמופיעה באתר בסוגריים מוצגת עם סמל 📍.</p>
+          </div>
+        </div>
+        <div class="schedule-wrap"><table id="teacherTable" class="schedule-table"></table></div>
+      </div>
+    </section>
+
+    <section id="commonView" class="view">
+      <div class="common-layout">
+        <aside class="card chooser-card">
+          <div class="section-title">
+            <div><h2>בחירת מורים</h2><p>בחרו שני מורים או יותר.</p></div>
+            <button id="clearTeachers" class="ghost-btn" type="button">נקה</button>
+          </div>
+          <input id="commonSearch" type="search" placeholder="חיפוש מורה…" />
+          <div id="selectedChips" class="chips"></div>
+          <div id="teacherChecklist" class="teacher-list"></div>
+        </aside>
+
+        <section class="results-area">
+          <div class="summary-row common-summary">
+            <div class="mini-card"><span>נבחרו</span><strong id="selectedCount">0</strong></div>
+            <div class="mini-card success"><span>שעות שכולם פנויים</span><strong id="allFreeCount">0</strong></div>
+            <div class="mini-card"><span>ההתאמה הטובה ביותר</span><strong id="bestMatch">—</strong></div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-headline"><div><h2>זמינות משותפת</h2><p>לחצו על תא כדי לראות מי פנוי ומי מלמד.</p></div></div>
+            <div class="schedule-wrap"><table id="commonTable" class="schedule-table common-table"></table></div>
+          </div>
+          <div id="slotDetails" class="slot-details card hidden" aria-live="polite"></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <footer>הנתונים נבנים ממערכות הכיתות באתר שחף. יש לוודא עדכון לאחר שינויי מערכת.</footer>
+  <script src="app.js"></script>
+</body>
+</html>
