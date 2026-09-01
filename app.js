@@ -3,6 +3,23 @@
 const DAYS = ['ראשון','שני','שלישי','רביעי','חמישי'];
 const VALID_HOURS = new Set([1,2,3,4,5,6,7,8]);
 
+// דחיסת המערכת למובייל נשלטת כאן ע"י class על ה-app-shell
+// (ולא ע"י media query בלבד ב-CSS, וגם לא על ה-body).
+// כך, כשמפיקים תמונה להדפסה, מספיק לבנות את העותק
+// כ"אח" של ה-app-shell (ולא כילד שלו) כדי שהוא תמיד
+// ייצא במצב "מלא" - גם כשמורידים מהטלפון.
+const COMPACT_QUERY = window.matchMedia('(max-width:700px)');
+
+function applyCompactMode(){
+  document.querySelector('.app-shell').classList.toggle(
+    'compact-view',
+    COMPACT_QUERY.matches
+  );
+}
+
+applyCompactMode();
+COMPACT_QUERY.addEventListener('change', applyCompactMode);
+
 // מערכת הצבעים בונה עבור כל מורה, בכל רינדור, מפה
 // דינמית של צבעים - כך שיש תמיד מספיק צבעים שונים
 // ומרוחקים זה מזה על גלגל הצבעים (לא פלטה קבועה
@@ -750,6 +767,90 @@ document.addEventListener('click', e=>{
 $('#colorToggle').addEventListener('change', ()=>{
   if(selectedTeacher) renderTeacher();
 });
+
+async function downloadTeacherImage(){
+  if(!selectedTeacher){
+    alert('בחרו קודם מורה כדי להוריד את המערכת שלו/ה כתמונה.');
+    return;
+  }
+
+  const btn = $('#downloadTeacherImg');
+  const originalLabel = btn.textContent;
+
+  btn.disabled = true;
+  btn.textContent = '⏳ מכין תמונה…';
+
+  // בונים עותק "מלא" של המערכת מחוץ למסך הנראה, כאח
+  // של ה-app-shell (לא כילד שלו) - כך שה-class של
+  // דחיסת המובייל (compact-view) לא משפיע עליו בכלל,
+  // גם אם המכשיר עצמו הוא טלפון צר.
+  const wrap = document.createElement('div');
+
+  wrap.dir = 'rtl';
+  wrap.style.position = 'fixed';
+  wrap.style.top = '0';
+  wrap.style.right = '-99999px';
+  wrap.style.width = '1400px';
+  wrap.style.background = '#ffffff';
+  wrap.style.padding = '28px';
+  wrap.style.fontFamily = getComputedStyle(document.body).fontFamily;
+
+  const title = document.createElement('h2');
+  title.textContent = `מערכת שבועית · ${selectedTeacher}`;
+  title.style.margin = '0 0 4px';
+  title.style.fontSize = '22px';
+  title.style.color = '#152238';
+  wrap.appendChild(title);
+
+  const subtitle = document.createElement('p');
+  subtitle.textContent = $('#dataStatus').textContent;
+  subtitle.style.margin = '0 0 16px';
+  subtitle.style.color = '#6b778c';
+  subtitle.style.fontSize = '13px';
+  wrap.appendChild(subtitle);
+
+  if($('#colorToggle').checked && !$('#colorLegend').classList.contains('hidden')){
+    const legendClone = $('#colorLegend').cloneNode(true);
+    legendClone.classList.remove('hidden');
+    legendClone.style.padding = '0 0 14px';
+    wrap.appendChild(legendClone);
+  }
+
+  const tableCard = document.createElement('div');
+  tableCard.className = 'table-card';
+  tableCard.style.boxShadow = 'none';
+  tableCard.style.border = '1px solid #dbe3ee';
+
+  const scheduleWrap = document.createElement('div');
+  scheduleWrap.className = 'schedule-wrap';
+  scheduleWrap.appendChild($('#teacherTable').cloneNode(true));
+  tableCard.appendChild(scheduleWrap);
+  wrap.appendChild(tableCard);
+
+  document.body.appendChild(wrap);
+
+  try{
+    const canvas = await html2canvas(wrap, {
+      backgroundColor: '#ffffff',
+      scale: 2,
+      useCORS: true
+    });
+
+    const link = document.createElement('a');
+    link.download = `מערכת-${selectedTeacher}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }catch(err){
+    console.error(err);
+    alert('לא הצלחנו להפיק את התמונה. נסו שוב.');
+  }finally{
+    document.body.removeChild(wrap);
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+$('#downloadTeacherImg').addEventListener('click', downloadTeacherImage);
 
 $('#commonSearch').addEventListener('input',e=>{
   renderChecklist(e.target.value);
