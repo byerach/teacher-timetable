@@ -1,9 +1,13 @@
-const DAYS = ['ראשון','שני','שלישי','רביעי','חמישי','שישי'];
+// הוסרו יום שישי (תמיד ריק בפועל) ושעות 0/9/10
+// (שעות שאין להן משמעות לימודית אמיתית).
+const DAYS = ['ראשון','שני','שלישי','רביעי','חמישי'];
+const VALID_HOURS = new Set([1,2,3,4,5,6,7,8]);
 
-// פלטת צבעים למערכת הצבעונית לפי מקצוע.
-// כל מקצוע מקבל צבע קבוע (לפי חישוב hash על השם),
-// כך שאותו מקצוע תמיד ייצבע באותו צבע.
-const SUBJECT_PALETTE = [
+// פלטת צבעים למערכת הצבעונית לפי קבוצת תלמידים.
+// כל קבוצת תלמידים (למשל "ט9" או "ט2, ט3, ט4" יחד)
+// מקבלת צבע קבוע (לפי חישוב hash), כך שאותה קבוצה
+// תמיד תיצבע באותו צבע.
+const GROUP_PALETTE = [
   {bg:'#e3f2fd',text:'#0d47a1'},
   {bg:'#e8f5e9',text:'#1b5e20'},
   {bg:'#fff3e0',text:'#e65100'},
@@ -28,13 +32,12 @@ function hashString(s){
   return Math.abs(h);
 }
 
-function subjectColor(subject){
-  const idx = hashString(subject || 'שיעור') % SUBJECT_PALETTE.length;
-  return SUBJECT_PALETTE[idx];
+function groupColorFor(key){
+  const idx = hashString(key) % GROUP_PALETTE.length;
+  return GROUP_PALETTE[idx];
 }
 
 const DEFAULT_PERIODS = [
-  {hour:0,start:'07:30',end:'08:45'},
   {hour:1,start:'08:45',end:'09:30'},
   {hour:2,start:'09:35',end:'10:20'},
   {hour:3,start:'10:35',end:'11:20'},
@@ -42,8 +45,7 @@ const DEFAULT_PERIODS = [
   {hour:5,start:'12:35',end:'13:20'},
   {hour:6,start:'13:25',end:'14:10'},
   {hour:7,start:'14:30',end:'15:10'},
-  {hour:8,start:'15:10',end:'15:45'},
-  {hour:9,start:'15:50',end:'16:50'}
+  {hour:8,start:'15:10',end:'15:45'}
 ];
 
 let rawRecords = [];
@@ -136,11 +138,21 @@ async function loadData(){
 
     const data = await res.json();
 
-    rawRecords = Array.isArray(data.records) ? data.records : [];
+    const allRecords = Array.isArray(data.records) ? data.records : [];
+
+    // מסננים החוצה לגמרי יום שישי ושעות 0/9/10 -
+    // אין להם משמעות לימודית, כך שגם הספירות (שיעורים
+    // השבוע / שעות פנויות וכו') לא ייספרו אותם בטעות.
+    rawRecords = allRecords.filter(
+      r => DAYS.includes(r.day) && VALID_HOURS.has(Number(r.hour))
+    );
+
     records = mergeTeacherLessons(rawRecords);
 
     if(Array.isArray(data.periods) && data.periods.length){
-      periods = data.periods;
+      periods = data.periods.filter(
+        p => VALID_HOURS.has(Number(p.hour))
+      );
     }
 
     const updated = data.updatedAt
@@ -224,9 +236,13 @@ function pickTeacher(name){
   if(!name) return;
 
   selectedTeacher = name;
-  $('#teacherSearch').value = name;
   closeTeacherOptions();
   renderTeacher();
+
+  // מנקים את החיפוש אחרי בחירה, כדי שאפשר יהיה
+  // מיד להקליד ולבחור מורה אחר בלי למחוק ידנית.
+  $('#teacherSearch').value = '';
+  $('#teacherSearch').focus();
 }
 
 function recordsFor(teacher,day,hour){
@@ -252,10 +268,11 @@ function cellLessons(items, colorMode){
     <div class="lesson-cell">
       ${items.map(r=>{
         const subject = r.subject || 'שיעור';
+        const groupKey = r.groups?.length ? groupText(r.groups) : '';
 
-        const style = colorMode
+        const style = (colorMode && groupKey)
           ? (()=>{
-              const c = subjectColor(subject);
+              const c = groupColorFor(groupKey);
               return `style="background:${c.bg};border-color:${c.bg};color:${c.text}"`;
             })()
           : '';
@@ -347,20 +364,29 @@ function renderColorLegend(colorMode, teacherRecords){
     return;
   }
 
-  const subjects = [...new Set(
-    teacherRecords.map(r => r.subject || 'שיעור')
+  const keys = [...new Set(
+    teacherRecords
+      .filter(r => r.groups?.length)
+      .map(r => groupText(r.groups))
   )].sort(naturalSort);
 
   box.classList.remove('hidden');
 
-  box.innerHTML = subjects.map(s=>{
-    const c = subjectColor(s);
+  if(!keys.length){
+    box.innerHTML = `
+      <span class="legend-empty">אין מידע על קבוצות תלמידים במערכת הזו.</span>
+    `;
+    return;
+  }
+
+  box.innerHTML = keys.map(k=>{
+    const c = groupColorFor(k);
 
     return `
       <span
         class="legend-chip"
         style="background:${c.bg};color:${c.text};border-color:${c.bg}"
-      >${esc(s)}</span>
+      >${esc(k)}</span>
     `;
   }).join('');
 }
