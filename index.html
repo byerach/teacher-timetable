@@ -20,6 +20,13 @@
       </div>
     </div>
     <div id="dataStatus" class="status-pill">טוען נתונים…</div>
+    <a
+      id="syncLink"
+      class="sync-btn"
+      href="https://github.com/byerach/teacher-timetable/actions/workflows/update-timetable.yml"
+      target="_blank"
+      rel="noopener"
+    >🔄 סנכרן עכשיו</a>
   </header>
 
   <main class="app-shell">
@@ -77,11 +84,17 @@
             <div class="table-headline"><div><h2>זמינות משותפת</h2><p>לחצו על תא כדי לראות מי פנוי ומי מלמד.</p></div></div>
             <div class="schedule-wrap"><table id="commonTable" class="schedule-table common-table"></table></div>
           </div>
-          <div id="slotDetails" class="slot-details card hidden" aria-live="polite"></div>
         </section>
       </div>
     </section>
   </main>
+
+  <div id="slotModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <button id="closeSlotModal" class="modal-close" type="button" aria-label="סגור">✕</button>
+      <div id="slotDetails" aria-live="polite"></div>
+    </div>
+  </div>
 
   <footer>הנתונים נבנים ממערכות הכיתות באתר שחף. יש לוודא עדכון לאחר שינויי מערכת.</footer>
   <script src="app.js"></script>
