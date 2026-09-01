@@ -1,153 +1,853 @@
 #!/usr/bin/env python3
-"""איסוף מערכות כיתתיות מאתר שחף והמרתן למאגר מערכות מורים.
+# -*- coding: utf-8 -*-
 
-השימוש מיועד למידע שהאתר מציג לציבור. הסקריפט עובר על מזהי cls,
-מאתר טבלאות מערכת, ושומר data/timetable.json עבור אפליקציית GitHub Pages.
 """
-import json, re, time
+איסוף מערכות כיתתיות מאתר שחף והמרתן למאגר מערכות מורים.
+
+הסקריפט:
+1. פותח את אתר מערכת השעות.
+2. מנסה לזהות אוטומטית את כל מזהי הכיתות מתוך תפריט הכיתות.
+3. קורא רק את מערכות הכיתות הקיימות.
+4. מפריד בין:
+   - מקצוע
+   - מורה
+   - כיתת לימוד / חדר שמופיע בסוגריים
+5. שומר את הכל לקובץ:
+   data/timetable.json
+
+מיועד להרצה ידנית דרך GitHub Actions.
+"""
+
+import json
+import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse, parse_qs
+
 import requests
 from bs4 import BeautifulSoup
 
+
+# --------------------------------------------------
+# הגדרות
+# --------------------------------------------------
+
 BASE_URL = "https://beit-yerach.shahaf.site/"
-CLS_MIN = 1
-CLS_MAX = 160
-TIMEOUT = 20
-SLEEP = 0.12
+
+START_CLASS_ID = 2
+
+TIMEOUT = 7
+SLEEP = 0.08
+
+# אם לא הצלחנו לגלות את רשימת הכיתות מהאתר,
+# נשתמש בטווח הזה בלבד.
+FALLBACK_MIN = 1
+FALLBACK_MAX = 60
+
 OUT = Path(__file__).parent / "data" / "timetable.json"
-DAYS = ["ראשון","שני","שלישי","רביעי","חמישי","שישי"]
 
-session=requests.Session()
-session.headers.update({"User-Agent":"TeacherTimetable/1.0 (+school timetable helper)"})
+DAYS = [
+    "ראשון",
+    "שני",
+    "שלישי",
+    "רביעי",
+    "חמישי",
+    "שישי",
+]
 
-def clean(s): return re.sub(r"\s+"," ",(s or "").replace("\xa0"," ")).strip()
 
-def selected_class(soup, fallback):
-    sel=soup.select_one('select option[selected]')
-    if sel and clean(sel.get_text()): return clean(sel.get_text())
-    # לעיתים הדפדפן מסמן בחירה דרך value בלבד
-    select=soup.select_one('select')
-    if select:
-        for o in select.find_all('option'):
-            if o.get('value')==str(fallback): return clean(o.get_text())
-    return f"cls-{fallback}"
+# --------------------------------------------------
+# SESSION
+# --------------------------------------------------
+
+session = requests.Session()
+
+session.headers.update({
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 "
+        "Chrome/131.0 Safari/537.36"
+    )
+})
+
+
+# --------------------------------------------------
+# פונקציות עזר
+# --------------------------------------------------
+
+def clean(text):
+    """ניקוי רווחים ותווים מיוחדים."""
+    return re.sub(
+        r"\s+",
+        " ",
+        (text or "").replace("\xa0", " ")
+    ).strip()
+
 
 def parse_room(subject_text):
-    m=re.search(r"\(([^()]*)\)\s*$",subject_text)
-    if not m: return subject_text.strip(), ""
-    return subject_text[:m.start()].strip(), clean(m.group(1))
+    """
+    מפריד כיתת לימוד / חדר שמופיעים בסוגריים בסוף המקצוע.
 
-def plausible_time(t): return bool(re.fullmatch(r"\d{1,2}:\d{2}",t))
+    לדוגמה:
+    אנגלית (מחשבים 4)
 
-def extract_item(block, source_class):
-    # מנסה לשמור את שורות ה-DOM ולא רק טקסט שטוח.
-    lines=[clean(x) for x in block.stripped_strings if clean(x)]
-    if not lines: return []
-    out=[]
-    # דפוס שכיח: מקצוע (חדר), שם מורה; לעיתים מספר זוגות באותו תא.
-    i=0
+    יהפוך ל:
+    subject = אנגלית
+    classroom = מחשבים 4
+    """
+
+    text = clean(subject_text)
+
+    match = re.search(r"\(([^()]*)\)\s*$", text)
+
+    if not match:
+        return text, ""
+
+    subject = clean(text[:match.start()])
+    classroom = clean(match.group(1))
+
+    return subject, classroom
+
+
+def looks_like_teacher(text):
+    """
+    בדיקה גסה האם טקסט נראה כמו שם של מורה.
+    """
+
+    text = clean(text)
+
+    if not text:
+        return False
+
+    if "(" in text or ")" in text:
+        return False
+
+    if re.fullmatch(r"\d+", text):
+        return False
+
+    if re.fullmatch(r"\d{1,2}:\d{2}", text):
+        return False
+
+    words = text.split()
+
+    if len(words) < 2:
+        return False
+
+    # לפחות שתי מילים בעברית
+    hebrew_words = [
+        w for w in words
+        if re.search(r"[א-ת]", w)
+    ]
+
+    return len(hebrew_words) >= 2
+
+
+def extract_teacher_name(text):
+    """
+    לעיתים אתר שחף מחבר:
+    'סלומון שלומי אנגלית'
+
+    ולכן ננסה לקחת את החלק שנראה כמו שם המורה.
+    """
+
+    text = clean(text)
+
+    words = text.split()
+
+    if len(words) <= 2:
+        return text
+
+    # שמות מורים באתר בדרך כלל 2-3 מילים.
+    # אנחנו מעדיפים את שתי המילים הראשונות.
+    first_two = " ".join(words[:2])
+
+    if looks_like_teacher(first_two):
+        return first_two
+
+    return text
+
+
+# --------------------------------------------------
+# גילוי הכיתות באתר
+# --------------------------------------------------
+
+def discover_class_ids():
+    """
+    מנסה למצוא את כל מזהי cls מתוך ה-select או מתוך קישורים בדף.
+    """
+
+    print("מאתר את רשימת הכיתות באתר...")
+
+    response = session.get(
+        BASE_URL,
+        params={
+            "cls": START_CLASS_ID,
+            "tab": "timetable",
+        },
+        timeout=TIMEOUT,
+    )
+
+    response.raise_for_status()
+
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    found = set()
+
+    # ------------------------------------------------
+    # אפשרות 1: option value בתוך select
+    # ------------------------------------------------
+
+    for option in soup.find_all("option"):
+
+        value = clean(option.get("value", ""))
+
+        if value.isdigit():
+            found.add(int(value))
+
+    # ------------------------------------------------
+    # אפשרות 2: קישורים שיש בהם cls=
+    # ------------------------------------------------
+
+    for a in soup.find_all("a", href=True):
+
+        href = a["href"]
+
+        try:
+            query = parse_qs(urlparse(href).query)
+
+            if "cls" in query:
+
+                for value in query["cls"]:
+
+                    if value.isdigit():
+                        found.add(int(value))
+
+        except Exception:
+            pass
+
+    if found:
+
+        ids = sorted(found)
+
+        print(
+            f"✓ נמצאו {len(ids)} מזהי כיתות "
+            f"({ids[0]}–{ids[-1]})"
+        )
+
+        return ids
+
+    # ------------------------------------------------
+    # fallback
+    # ------------------------------------------------
+
+    print(
+        "לא הצלחתי לקרוא את רשימת הכיתות מה-select."
+    )
+
+    print(
+        f"עובר לטווח גיבוי "
+        f"{FALLBACK_MIN}–{FALLBACK_MAX}."
+    )
+
+    return list(
+        range(
+            FALLBACK_MIN,
+            FALLBACK_MAX + 1
+        )
+    )
+
+
+# --------------------------------------------------
+# שם הכיתה
+# --------------------------------------------------
+
+def get_selected_class_name(soup, cls_id):
+
+    # selected מפורש
+    selected = soup.select_one(
+        "select option[selected]"
+    )
+
+    if selected:
+
+        text = clean(
+            selected.get_text(" ", strip=True)
+        )
+
+        if text:
+            return text
+
+    # חיפוש option לפי value
+    for option in soup.find_all("option"):
+
+        if clean(option.get("value")) == str(cls_id):
+
+            text = clean(
+                option.get_text(
+                    " ",
+                    strip=True
+                )
+            )
+
+            if text:
+                return text
+
+    return f"cls-{cls_id}"
+
+
+# --------------------------------------------------
+# חילוץ שיעורים מתוך תא
+# --------------------------------------------------
+
+def extract_items_from_cell(cell, source_class):
+    """
+    חילוץ כל השיעורים מתוך תא אחד.
+
+    האתר יכול להכיל למשל:
+
+    אנגלית (מחשבים 4)
+    סלומון שלומי
+    אנגלית (ט1)
+    ברקלי אביבה
+    אנגלית (ט11)
+    אורחוב דריה
+
+    ולכן חשוב לא להניח שיש רק שיעור אחד בתא.
+    """
+
+    lines = [
+        clean(x)
+        for x in cell.stripped_strings
+        if clean(x)
+    ]
+
+    if not lines:
+        return []
+
+    items = []
+
+    i = 0
+
     while i < len(lines):
-        subject_line=lines[i]
-        if plausible_time(subject_line) or subject_line.isdigit(): i+=1; continue
-        teacher_line=lines[i+1] if i+1<len(lines) else ""
-        # אם השורה הבאה נראית כמו מקצוע נוסף, נשאיר את המורה ריק ולא נבלע אותה.
-        if re.search(r"\([^()]+\)$",teacher_line) and not re.search(r"[א-ת]{2,}\s+[א-ת]{2,}",teacher_line):
-            teacher_line=""
-        subject,room=parse_room(subject_line)
-        # בחלק מהאתר שם המורה מופיע יחד עם מקצוע/חדר; ננסה לחלץ שם עברי בתחילת השורה.
-        teacher=teacher_line
+
+        line = lines[i]
+
+        # דילוג על שעות ומספרים
+        if re.fullmatch(r"\d+", line):
+            i += 1
+            continue
+
+        if re.fullmatch(
+            r"\d{1,2}:\d{2}",
+            line
+        ):
+            i += 1
+            continue
+
+        # אנחנו מניחים שהשורה הנוכחית היא מקצוע
+        subject, classroom = parse_room(line)
+
+        if not subject:
+            i += 1
+            continue
+
+        teacher = ""
+
+        # השורה הבאה אמורה להיות מורה
+        if i + 1 < len(lines):
+
+            next_line = lines[i + 1]
+
+            if looks_like_teacher(next_line):
+
+                teacher = extract_teacher_name(
+                    next_line
+                )
+
         if teacher:
-            m=re.match(r"^([א-ת'\-]+(?:\s+[א-ת'\-]+){1,3})(?:\s+.+)?$",teacher)
-            if m: teacher=clean(m.group(1))
-        if subject and teacher:
-            out.append({"subject":subject,"classroom":room,"teacher":teacher,"sourceClass":source_class,"group":source_class})
-            i+=2
+
+            items.append({
+                "subject": subject,
+                "teacher": teacher,
+                "classroom": classroom,
+                "sourceClass": source_class,
+                "group": source_class,
+            })
+
+            i += 2
+
         else:
-            i+=1
-    return out
+
+            i += 1
+
+    return items
+
+
+# --------------------------------------------------
+# קריאת דף מערכת אחת
+# --------------------------------------------------
 
 def parse_page(html, cls_id):
-    soup=BeautifulSoup(html,'html.parser')
-    text=clean(soup.get_text(' ',strip=True))
-    if 'מערכת שעות' not in text: return None
-    source=selected_class(soup,cls_id)
-    tables=soup.find_all('table')
-    if not tables: return None
-    # בוחרים את הטבלה שמכילה כמה שיותר שמות ימים/שעות.
-    table=max(tables,key=lambda t:sum(d in t.get_text(' ',strip=True) for d in DAYS)+len(t.find_all('tr')))
-    rows=table.find_all('tr')
-    records=[]; periods=[]
-    # מיפוי עמודות לפי כותרת אם קיימת
-    day_columns={}
-    for tr in rows[:4]:
-        cells=tr.find_all(['th','td'])
-        for idx,c in enumerate(cells):
-            tx=clean(c.get_text(' ',strip=True))
-            for d in DAYS:
-                if d in tx: day_columns[idx]=d
+
+    soup = BeautifulSoup(
+        html,
+        "html.parser"
+    )
+
+    page_text = clean(
+        soup.get_text(
+            " ",
+            strip=True
+        )
+    )
+
+    if "מערכת שעות" not in page_text:
+        return None
+
+    source_class = get_selected_class_name(
+        soup,
+        cls_id
+    )
+
+    tables = soup.find_all("table")
+
+    if not tables:
+        return None
+
+    # בוחרים את הטבלה שנראית הכי הרבה כמו מערכת שעות
+    def table_score(table):
+
+        text = clean(
+            table.get_text(
+                " ",
+                strip=True
+            )
+        )
+
+        score = 0
+
+        for day in DAYS:
+
+            if day in text:
+                score += 10
+
+        score += len(
+            table.find_all("tr")
+        )
+
+        return score
+
+    table = max(
+        tables,
+        key=table_score
+    )
+
+    rows = table.find_all("tr")
+
+    # ------------------------------------------------
+    # זיהוי עמודות ימים
+    # ------------------------------------------------
+
+    day_columns = {}
+
+    for row in rows[:5]:
+
+        cells = row.find_all(
+            ["th", "td"]
+        )
+
+        for index, cell in enumerate(cells):
+
+            text = clean(
+                cell.get_text(
+                    " ",
+                    strip=True
+                )
+            )
+
+            for day in DAYS:
+
+                if day in text:
+                    day_columns[index] = day
+
+    # מבנה ברירת מחדל
     if not day_columns:
-        # באתר הנוכחי: עמודה ראשונה שעה ולאחריה ימים א-ו
-        day_columns={i+1:d for i,d in enumerate(DAYS)}
-    for tr in rows:
-        cells=tr.find_all(['th','td'])
-        if len(cells)<2: continue
-        first=clean(cells[0].get_text(' ',strip=True))
-        hm=re.match(r"^(\d{1,2})\b",first)
-        if not hm: continue
-        hour=int(hm.group(1)); times=re.findall(r"\d{1,2}:\d{2}",first)
-        if len(times)>=2: periods.append({"hour":hour,"start":times[0],"end":times[1]})
-        for idx,day in day_columns.items():
-            if idx>=len(cells): continue
-            cell=cells[idx]
-            # נעדיף בלוקים פנימיים נפרדים אם קיימים.
-            blocks=[x for x in cell.find_all(recursive=False) if clean(x.get_text(' ',strip=True))]
-            candidates=blocks or [cell]
-            seen=set()
-            for b in candidates:
-                for item in extract_item(b,source):
-                    key=(item['teacher'],item['subject'],item['classroom'])
-                    if key in seen: continue
-                    seen.add(key)
-                    item.update({"day":day,"hour":hour})
-                    records.append(item)
-    return source,records,periods
+
+        day_columns = {
+            1: "ראשון",
+            2: "שני",
+            3: "שלישי",
+            4: "רביעי",
+            5: "חמישי",
+            6: "שישי",
+        }
+
+    records = []
+
+    periods = []
+
+    # ------------------------------------------------
+    # מעבר על השורות
+    # ------------------------------------------------
+
+    for row in rows:
+
+        cells = row.find_all(
+            ["th", "td"]
+        )
+
+        if len(cells) < 2:
+            continue
+
+        first_cell_text = clean(
+            cells[0].get_text(
+                " ",
+                strip=True
+            )
+        )
+
+        # מספר השעה
+        hour_match = re.match(
+            r"^(\d{1,2})\b",
+            first_cell_text
+        )
+
+        if not hour_match:
+            continue
+
+        hour = int(
+            hour_match.group(1)
+        )
+
+        # שעות התחלה וסיום
+        times = re.findall(
+            r"\d{1,2}:\d{2}",
+            first_cell_text
+        )
+
+        if len(times) >= 2:
+
+            periods.append({
+                "hour": hour,
+                "start": times[0],
+                "end": times[1],
+            })
+
+        # ------------------------------------------------
+        # כל יום
+        # ------------------------------------------------
+
+        for column_index, day in day_columns.items():
+
+            if column_index >= len(cells):
+                continue
+
+            cell = cells[column_index]
+
+            items = extract_items_from_cell(
+                cell,
+                source_class
+            )
+
+            seen = set()
+
+            for item in items:
+
+                key = (
+                    item["teacher"],
+                    item["subject"],
+                    item["classroom"],
+                )
+
+                if key in seen:
+                    continue
+
+                seen.add(key)
+
+                item["day"] = day
+                item["hour"] = hour
+
+                records.append(item)
+
+    return (
+        source_class,
+        records,
+        periods,
+    )
+
+
+# --------------------------------------------------
+# הורדת מערכת כיתה
+# --------------------------------------------------
+
+def fetch_class(cls_id):
+
+    response = session.get(
+        BASE_URL,
+        params={
+            "cls": cls_id,
+            "tab": "timetable",
+        },
+        timeout=TIMEOUT,
+    )
+
+    response.raise_for_status()
+
+    return parse_page(
+        response.text,
+        cls_id
+    )
+
+
+# --------------------------------------------------
+# MAIN
+# --------------------------------------------------
 
 def main():
-    all_records=[]; classes=[]; period_map={}
-    empty_run=0
-    for cls_id in range(CLS_MIN,CLS_MAX+1):
-        try:
-            r=session.get(BASE_URL,params={"cls":cls_id,"tab":"timetable"},timeout=TIMEOUT)
-            r.raise_for_status()
-            parsed=parse_page(r.text,cls_id)
-            if parsed:
-                source,recs,periods=parsed
-                # דפים לא קיימים לעיתים מחזירים אותו תוכן; נשמור רק class name ייחודי.
-                if source not in classes and recs:
-                    classes.append(source); all_records.extend(recs)
-                    for p in periods: period_map[p['hour']]=p
-                    print(f"✓ {cls_id}: {source} — {len(recs)} רשומות")
-                    empty_run=0
-                else: empty_run+=1
-            else: empty_run+=1
-        except Exception as e:
-            print(f"! {cls_id}: {e}"); empty_run+=1
-        time.sleep(SLEEP)
-    # הסרת כפילויות גלובלית
-    uniq={}
-    for r in all_records:
-        k=(r['teacher'],r['day'],r['hour'],r['subject'],r.get('classroom',''),r.get('sourceClass',''))
-        uniq[k]=r
-    payload={
-        "updatedAt":datetime.now(timezone.utc).isoformat(),
-        "source":BASE_URL,
-        "classes":classes,
-        "periods":[period_map[k] for k in sorted(period_map)],
-        "records":list(uniq.values())
-    }
-    OUT.parent.mkdir(exist_ok=True)
-    OUT.write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding='utf-8')
-    print(f"\nנשמרו {len(payload['records'])} רשומות, {len(classes)} כיתות → {OUT}")
 
-if __name__=='__main__': main()
+    print()
+    print("=" * 60)
+    print("עדכון מערכת שעות בית ירח")
+    print("=" * 60)
+    print()
+
+    class_ids = discover_class_ids()
+
+    all_records = []
+
+    classes = []
+
+    period_map = {}
+
+    seen_classes = set()
+
+    # ------------------------------------------------
+    # איסוף
+    # ------------------------------------------------
+
+    for index, cls_id in enumerate(
+        class_ids,
+        start=1
+    ):
+
+        print(
+            f"[{index}/{len(class_ids)}] "
+            f"קורא cls={cls_id}...",
+            end=" "
+        )
+
+        try:
+
+            parsed = fetch_class(cls_id)
+
+            if not parsed:
+
+                print("ללא מערכת")
+                continue
+
+            source_class, records, periods = parsed
+
+            # מניעת דפים כפולים
+            if source_class in seen_classes:
+
+                print(
+                    f"כפילות ({source_class})"
+                )
+
+                continue
+
+            if not records:
+
+                print(
+                    f"{source_class} — אין שיעורים"
+                )
+
+                continue
+
+            seen_classes.add(
+                source_class
+            )
+
+            classes.append(
+                source_class
+            )
+
+            all_records.extend(
+                records
+            )
+
+            for period in periods:
+
+                period_map[
+                    period["hour"]
+                ] = period
+
+            print(
+                f"✓ {source_class} — "
+                f"{len(records)} שיעורים"
+            )
+
+        except requests.Timeout:
+
+            print("TIMEOUT")
+
+        except Exception as error:
+
+            print(
+                f"שגיאה: {error}"
+            )
+
+        time.sleep(SLEEP)
+
+    # ------------------------------------------------
+    # הסרת כפילויות
+    # ------------------------------------------------
+
+    unique_records = {}
+
+    for record in all_records:
+
+        key = (
+            record["teacher"],
+            record["day"],
+            record["hour"],
+            record["subject"],
+            record.get(
+                "classroom",
+                ""
+            ),
+            record.get(
+                "sourceClass",
+                ""
+            ),
+        )
+
+        unique_records[key] = record
+
+    records = list(
+        unique_records.values()
+    )
+
+    # ------------------------------------------------
+    # מיון
+    # ------------------------------------------------
+
+    day_order = {
+        day: index
+        for index, day in enumerate(DAYS)
+    }
+
+    records.sort(
+        key=lambda r: (
+            r["teacher"],
+            day_order.get(
+                r["day"],
+                99
+            ),
+            r["hour"],
+            r["sourceClass"],
+            r["subject"],
+        )
+    )
+
+    classes.sort()
+
+    # ------------------------------------------------
+    # רשימת מורים
+    # ------------------------------------------------
+
+    teachers = sorted(
+        set(
+            record["teacher"]
+            for record in records
+            if record.get("teacher")
+        )
+    )
+
+    # ------------------------------------------------
+    # JSON
+    # ------------------------------------------------
+
+    payload = {
+
+        "updatedAt": datetime.now(
+            timezone.utc
+        ).isoformat(),
+
+        "source": BASE_URL,
+
+        "classes": classes,
+
+        "teachers": teachers,
+
+        "periods": [
+            period_map[key]
+            for key in sorted(
+                period_map
+            )
+        ],
+
+        "records": records,
+    }
+
+    OUT.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    OUT.write_text(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            indent=2
+        ),
+        encoding="utf-8"
+    )
+
+    # ------------------------------------------------
+    # סיכום
+    # ------------------------------------------------
+
+    print()
+    print("=" * 60)
+
+    print(
+        f"✓ כיתות שנקראו: "
+        f"{len(classes)}"
+    )
+
+    print(
+        f"✓ מורים שנמצאו: "
+        f"{len(teachers)}"
+    )
+
+    print(
+        f"✓ שיעורים שנשמרו: "
+        f"{len(records)}"
+    )
+
+    print(
+        f"✓ הקובץ נשמר ב:"
+    )
+
+    print(OUT)
+
+    print("=" * 60)
+    print()
+
+    if len(classes) == 0:
+
+        raise RuntimeError(
+            "לא נמצאו מערכות כיתתיות."
+        )
+
+    if len(records) == 0:
+
+        raise RuntimeError(
+            "לא נמצאו שיעורים במערכות."
+        )
+
+
+if __name__ == "__main__":
+    main()
