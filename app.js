@@ -3,38 +3,55 @@
 const DAYS = ['ראשון','שני','שלישי','רביעי','חמישי'];
 const VALID_HOURS = new Set([1,2,3,4,5,6,7,8]);
 
-// פלטת צבעים למערכת הצבעונית לפי קבוצת תלמידים.
-// כל קבוצת תלמידים (למשל "ט9" או "ט2, ט3, ט4" יחד)
-// מקבלת צבע קבוע (לפי חישוב hash), כך שאותה קבוצה
-// תמיד תיצבע באותו צבע.
-const GROUP_PALETTE = [
-  {bg:'#e3f2fd',text:'#0d47a1'},
-  {bg:'#e8f5e9',text:'#1b5e20'},
-  {bg:'#fff3e0',text:'#e65100'},
-  {bg:'#fce4ec',text:'#ad1457'},
-  {bg:'#ede7f6',text:'#4527a0'},
-  {bg:'#fffde7',text:'#9e7d0a'},
-  {bg:'#e0f7fa',text:'#006064'},
-  {bg:'#fbe9e7',text:'#bf360c'},
-  {bg:'#f1f8e9',text:'#33691e'},
-  {bg:'#f3e5f5',text:'#6a1b9a'},
-  {bg:'#e1f5fe',text:'#01579b'},
-  {bg:'#efebe9',text:'#4e342e'}
-];
+// מערכת הצבעים בונה עבור כל מורה, בכל רינדור, מפה
+// דינמית של צבעים - כך שיש תמיד מספיק צבעים שונים
+// ומרוחקים זה מזה על גלגל הצבעים (לא פלטה קבועה
+// שחוזרת על עצמה כשיש הרבה קבוצות).
+//
+// מפתח הצביעה הוא "מקצוע + קבוצת תלמידים" (ולא כולל
+// את החדר הפיזי בכוונה) - כי אותו שיעור בדיוק יכול
+// להתקיים בחדרים שונים בימים שונים, וזה עדיין אותו
+// שיעור מבחינת המורה. לעומת זאת אם המקצוע שונה, או
+// שהתלמידים שונים, זה חייב לקבל צבע אחר.
+function lessonColorKey(r){
+  const subject = r.subject || 'שיעור';
+  const group = r.groups?.length ? groupText(r.groups) : '';
 
-function hashString(s){
-  let h = 0;
-
-  for(let i=0;i<s.length;i++){
-    h = (h * 31 + s.charCodeAt(i)) | 0;
-  }
-
-  return Math.abs(h);
+  return group ? `${subject}‖${group}` : '';
 }
 
-function groupColorFor(key){
-  const idx = hashString(key) % GROUP_PALETTE.length;
-  return GROUP_PALETTE[idx];
+function buildTeacherColorMap(teacherRecords){
+  const seen = new Map();
+
+  for(const r of teacherRecords){
+    const key = lessonColorKey(r);
+
+    if(!key || seen.has(key)) continue;
+
+    seen.set(key,{
+      subject: r.subject || 'שיעור',
+      group: groupText(r.groups)
+    });
+  }
+
+  const combos = [...seen.entries()].sort((a,b)=>
+    naturalSort(a[1].group, b[1].group) ||
+    naturalSort(a[1].subject, b[1].subject)
+  );
+
+  const n = combos.length || 1;
+  const colorMap = new Map();
+
+  combos.forEach(([key],i)=>{
+    const hue = Math.round((360 / n) * i);
+
+    colorMap.set(key,{
+      bg: `hsl(${hue}, 65%, 90%)`,
+      text: `hsl(${hue}, 70%, 28%)`
+    });
+  });
+
+  return {colorMap, combos};
 }
 
 const DEFAULT_PERIODS = [
@@ -259,7 +276,7 @@ function groupText(groups){
   return groups.join(', ');
 }
 
-function cellLessons(items, colorMode){
+function cellLessons(items, colorMode, colorMap){
   if(!items.length){
     return '<div class="free-cell">פנוי</div>';
   }
@@ -268,13 +285,11 @@ function cellLessons(items, colorMode){
     <div class="lesson-cell">
       ${items.map(r=>{
         const subject = r.subject || 'שיעור';
-        const groupKey = r.groups?.length ? groupText(r.groups) : '';
+        const key = lessonColorKey(r);
+        const c = (colorMode && key) ? colorMap.get(key) : null;
 
-        const style = (colorMode && groupKey)
-          ? (()=>{
-              const c = groupColorFor(groupKey);
-              return `style="background:${c.bg};border-color:${c.bg};color:${c.text}"`;
-            })()
+        const style = c
+          ? `style="background:${c.bg};border-color:${c.bg};color:${c.text}"`
           : '';
 
         return `
@@ -329,7 +344,9 @@ function renderTeacher(){
     periods.length * DAYS.length - lessonSlots.size
   );
 
-  renderColorLegend(colorMode, teacherRecords);
+  const {colorMap, combos} = buildTeacherColorMap(teacherRecords);
+
+  renderColorLegend(colorMode, combos, colorMap);
 
   $('#teacherTable').innerHTML =
     tableHeader() +
@@ -342,7 +359,7 @@ function renderTeacher(){
           </td>
 
           ${DAYS.map(d=>`
-            <td class="teacher-slot" data-day="${esc(d)}" data-hour="${p.hour}">${cellLessons(recordsFor(t,d,p.hour), colorMode)}</td>
+            <td class="teacher-slot" data-day="${esc(d)}" data-hour="${p.hour}">${cellLessons(recordsFor(t,d,p.hour), colorMode, colorMap)}</td>
           `).join('')}
         </tr>
       `).join('')}
@@ -355,38 +372,32 @@ function renderTeacher(){
   });
 }
 
-function renderColorLegend(colorMode, teacherRecords){
+function renderColorLegend(colorMode, combos, colorMap){
   const box = $('#colorLegend');
 
-  if(!colorMode || !teacherRecords.length){
+  if(!colorMode){
     box.innerHTML = '';
     box.classList.add('hidden');
     return;
   }
 
-  const keys = [...new Set(
-    teacherRecords
-      .filter(r => r.groups?.length)
-      .map(r => groupText(r.groups))
-  )].sort(naturalSort);
-
   box.classList.remove('hidden');
 
-  if(!keys.length){
+  if(!combos.length){
     box.innerHTML = `
       <span class="legend-empty">אין מידע על קבוצות תלמידים במערכת הזו.</span>
     `;
     return;
   }
 
-  box.innerHTML = keys.map(k=>{
-    const c = groupColorFor(k);
+  box.innerHTML = combos.map(([key, info])=>{
+    const c = colorMap.get(key);
 
     return `
       <span
         class="legend-chip"
         style="background:${c.bg};color:${c.text};border-color:${c.bg}"
-      >${esc(k)}</span>
+      >${esc(info.subject)} · תלמידים מ: ${esc(info.group)}</span>
     `;
   }).join('');
 }
