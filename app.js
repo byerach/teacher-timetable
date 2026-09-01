@@ -362,18 +362,10 @@ function renderCommon(){
               class="availability ${cls}"
               data-day="${esc(d)}"
               data-hour="${p.hour}"
+              title="${s.total ? 'לחצו לפרטים' : ''}"
               ${!s.total ? 'disabled' : ''}
             >
               <strong>${label}</strong>
-              <span>
-                ${
-                  s.free === s.total && s.total
-                    ? 'כולם פנויים'
-                    : s.total
-                      ? 'לחצו לפרטים'
-                      : ''
-                }
-              </span>
             </button>
           </td>
         `;
@@ -401,7 +393,7 @@ function renderCommon(){
   });
 
   if(!names.length){
-    $('#slotDetails').classList.add('hidden');
+    $('#slotModal').classList.add('hidden');
   }
 }
 
@@ -452,8 +444,22 @@ function showSlot(day,hour){
     </div>
   `;
 
-  $('#slotDetails').classList.remove('hidden');
+  $('#slotModal').classList.remove('hidden');
 }
+
+function closeSlotModal(){
+  $('#slotModal').classList.add('hidden');
+}
+
+$('#closeSlotModal').addEventListener('click', closeSlotModal);
+
+$('#slotModal').addEventListener('click', e=>{
+  if(e.target.id === 'slotModal') closeSlotModal();
+});
+
+document.addEventListener('keydown', e=>{
+  if(e.key === 'Escape') closeSlotModal();
+});
 
 $$('.tab').forEach(b=>{
   b.addEventListener('click',()=>{
