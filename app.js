@@ -1,5 +1,38 @@
 const DAYS = ['ראשון','שני','שלישי','רביעי','חמישי','שישי'];
 
+// פלטת צבעים למערכת הצבעונית לפי מקצוע.
+// כל מקצוע מקבל צבע קבוע (לפי חישוב hash על השם),
+// כך שאותו מקצוע תמיד ייצבע באותו צבע.
+const SUBJECT_PALETTE = [
+  {bg:'#e3f2fd',text:'#0d47a1'},
+  {bg:'#e8f5e9',text:'#1b5e20'},
+  {bg:'#fff3e0',text:'#e65100'},
+  {bg:'#fce4ec',text:'#ad1457'},
+  {bg:'#ede7f6',text:'#4527a0'},
+  {bg:'#fffde7',text:'#9e7d0a'},
+  {bg:'#e0f7fa',text:'#006064'},
+  {bg:'#fbe9e7',text:'#bf360c'},
+  {bg:'#f1f8e9',text:'#33691e'},
+  {bg:'#f3e5f5',text:'#6a1b9a'},
+  {bg:'#e1f5fe',text:'#01579b'},
+  {bg:'#efebe9',text:'#4e342e'}
+];
+
+function hashString(s){
+  let h = 0;
+
+  for(let i=0;i<s.length;i++){
+    h = (h * 31 + s.charCodeAt(i)) | 0;
+  }
+
+  return Math.abs(h);
+}
+
+function subjectColor(subject){
+  const idx = hashString(subject || 'שיעור') % SUBJECT_PALETTE.length;
+  return SUBJECT_PALETTE[idx];
+}
+
 const DEFAULT_PERIODS = [
   {hour:0,start:'07:30',end:'08:45'},
   {hour:1,start:'08:45',end:'09:30'},
@@ -128,9 +161,7 @@ async function loadData(){
   renderChecklist();
 
   if(teachers.length){
-    selectedTeacher = teachers[0];
-    $('#teacherSearch').value = selectedTeacher;
-    renderTeacher();
+    renderNoSelection();
   }else{
     renderEmptyTeacher();
   }
@@ -212,16 +243,26 @@ function groupText(groups){
   return groups.join(', ');
 }
 
-function cellLessons(items){
+function cellLessons(items, colorMode){
   if(!items.length){
     return '<div class="free-cell">פנוי</div>';
   }
 
   return `
     <div class="lesson-cell">
-      ${items.map(r=>`
-        <div class="lesson">
-          <div class="subject">${esc(r.subject || 'שיעור')}</div>
+      ${items.map(r=>{
+        const subject = r.subject || 'שיעור';
+
+        const style = colorMode
+          ? (()=>{
+              const c = subjectColor(subject);
+              return `style="background:${c.bg};border-color:${c.bg};color:${c.text}"`;
+            })()
+          : '';
+
+        return `
+        <div class="lesson" ${style}>
+          <div class="subject">${esc(subject)}</div>
 
           ${r.groups?.length
             ? `<div class="group">תלמידים מ: ${esc(groupText(r.groups))}</div>`
@@ -233,7 +274,8 @@ function cellLessons(items){
             : ''
           }
         </div>
-      `).join('')}
+        `;
+      }).join('')}
     </div>
   `;
 }
@@ -251,6 +293,7 @@ function tableHeader(){
 
 function renderTeacher(){
   const t = selectedTeacher;
+  const colorMode = $('#colorToggle').checked;
 
   $('#teacherName').textContent = t || '—';
 
@@ -269,6 +312,8 @@ function renderTeacher(){
     periods.length * DAYS.length - lessonSlots.size
   );
 
+  renderColorLegend(colorMode, teacherRecords);
+
   $('#teacherTable').innerHTML =
     tableHeader() +
     `<tbody>
@@ -280,7 +325,7 @@ function renderTeacher(){
           </td>
 
           ${DAYS.map(d=>`
-            <td class="teacher-slot" data-day="${esc(d)}" data-hour="${p.hour}">${cellLessons(recordsFor(t,d,p.hour))}</td>
+            <td class="teacher-slot" data-day="${esc(d)}" data-hour="${p.hour}">${cellLessons(recordsFor(t,d,p.hour), colorMode)}</td>
           `).join('')}
         </tr>
       `).join('')}
@@ -293,8 +338,57 @@ function renderTeacher(){
   });
 }
 
+function renderColorLegend(colorMode, teacherRecords){
+  const box = $('#colorLegend');
+
+  if(!colorMode || !teacherRecords.length){
+    box.innerHTML = '';
+    box.classList.add('hidden');
+    return;
+  }
+
+  const subjects = [...new Set(
+    teacherRecords.map(r => r.subject || 'שיעור')
+  )].sort(naturalSort);
+
+  box.classList.remove('hidden');
+
+  box.innerHTML = subjects.map(s=>{
+    const c = subjectColor(s);
+
+    return `
+      <span
+        class="legend-chip"
+        style="background:${c.bg};color:${c.text};border-color:${c.bg}"
+      >${esc(s)}</span>
+    `;
+  }).join('');
+}
+
+function renderNoSelection(){
+  $('#teacherName').textContent = '—';
+  $('#lessonCount').textContent = '0';
+  $('#freeCount').textContent = '0';
+
+  $('#colorLegend').innerHTML = '';
+  $('#colorLegend').classList.add('hidden');
+
+  $('#teacherTable').innerHTML =
+    tableHeader() +
+    `<tbody>
+      <tr>
+        <td colspan="7" style="padding:40px;text-align:center;color:var(--muted)">
+          בחרו מורה למעלה כדי לראות את המערכת השבועית שלו/ה.
+        </td>
+      </tr>
+    </tbody>`;
+}
+
 function renderEmptyTeacher(){
   $('#teacherName').textContent = 'אין נתונים';
+
+  $('#colorLegend').innerHTML = '';
+  $('#colorLegend').classList.add('hidden');
 
   $('#teacherTable').innerHTML =
     tableHeader() +
@@ -614,6 +708,10 @@ document.addEventListener('click', e=>{
   if(!$('#teacherCombobox').contains(e.target)){
     closeTeacherOptions();
   }
+});
+
+$('#colorToggle').addEventListener('change', ()=>{
+  if(selectedTeacher) renderTeacher();
 });
 
 $('#commonSearch').addEventListener('input',e=>{
