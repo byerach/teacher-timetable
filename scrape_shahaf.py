@@ -36,6 +36,13 @@ from bs4 import BeautifulSoup, Tag
 BASE_URL = "https://beit-yerach.shahaf.site/"
 START_CLASS_ID = 2
 
+# האתר מציג כברירת מחדל את השבוע הנוכחי, אבל "מקצץ"
+# ולא מציג ימים שכבר עברו באותו שבוע (למשל אם היום יום
+# שלישי, ראשון ושני של השבוע הזה יופיעו ריקים). כדי לקבל
+# תמיד שבוע מלא (ראשון עד שישי) עם כל הימים, מבקשים את
+# השבוע הבא (week=1) ולא את ברירת המחדל (week=0/חסר).
+WEEK_OFFSET = 1
+
 TIMEOUT = 7
 SLEEP = 0.08
 
@@ -85,6 +92,7 @@ def discover_class_ids():
         params={
             "cls": START_CLASS_ID,
             "tab": "timetable",
+            "week": WEEK_OFFSET,
         },
         timeout=TIMEOUT,
     )
@@ -511,10 +519,51 @@ def parse_page(
         "tr"
     )
 
-    # מיפוי עמודות ימים
+    # מיפוי עמודות ימים.
+    # חשוב: סורקים רק את שורות הכותרת שלפני שורות
+    # השעות עצמן (כלומר עוצרים ברגע שנתקלים בשורה
+    # שהתא הראשון בה הוא מספר שעה). אם לא היינו
+    # עוצרים שם, טקסט של שיעור בפועל (כמו שם מורה
+    # שמסתיים באותה מילה כמו שם יום, למשל "...וטורי
+    # שני") היה יכול להתפרש בטעות כשורת כותרת ולקלקל
+    # את מיפוי העמודות.
+    header_rows = []
+
+    for row in rows:
+
+        cells = row.find_all(
+            ["th", "td"],
+            recursive=False
+        )
+
+        if not cells:
+            cells = row.find_all(
+                ["th", "td"]
+            )
+
+        if not cells:
+            continue
+
+        first_text = clean(
+            cells[0].get_text(
+                " ",
+                strip=True
+            )
+        )
+
+        if re.match(
+            r"^\d{1,2}\b",
+            first_text
+        ):
+            # הגענו לשורת שעה ראשונה - סיימנו
+            # עם שורות הכותרת.
+            break
+
+        header_rows.append(row)
+
     day_columns = {}
 
-    for row in rows[:5]:
+    for row in header_rows:
 
         cells = row.find_all(
             ["th", "td"],
@@ -530,6 +579,9 @@ def parse_page(
             cells
         ):
 
+            if index in day_columns:
+                continue
+
             text = clean(
                 cell.get_text(
                     " ",
@@ -543,6 +595,7 @@ def parse_page(
                     day_columns[
                         index
                     ] = day
+                    break
 
     if not day_columns:
         day_columns = {
@@ -655,6 +708,7 @@ def fetch_class(cls_id):
         params={
             "cls": cls_id,
             "tab": "timetable",
+            "week": WEEK_OFFSET,
         },
         timeout=TIMEOUT,
     )
