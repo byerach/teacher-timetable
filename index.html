@@ -13,7 +13,7 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <div class="brand-mark">בי</div>
+      <img src="logo.png" alt="דרכא בית ירח" class="brand-logo" />
       <div>
         <h1>מערכות מורים</h1>
         <p>בית ירח · מערכת אישית ומציאת זמן משותף</p>
@@ -43,6 +43,11 @@
           />
           <div id="teacherOptions" class="combobox-list hidden" role="listbox"></div>
         </div>
+
+        <label class="toggle-row">
+          <input type="checkbox" id="colorToggle" />
+          <span>🎨 הצג מערכת צבעונית לפי מקצוע</span>
+        </label>
       </div>
 
       <div class="summary-row">
@@ -58,6 +63,7 @@
             <p>כיתת הלימוד שמופיעה באתר בסוגריים מוצגת עם סמל 📍.</p>
           </div>
         </div>
+        <div id="colorLegend" class="color-legend hidden"></div>
         <div class="schedule-wrap"><table id="teacherTable" class="schedule-table"></table></div>
       </div>
     </section>
