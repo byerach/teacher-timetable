@@ -30,7 +30,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 import requests
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, Tag
 
 
 BASE_URL = "https://beit-yerach.shahaf.site/"
@@ -199,30 +199,6 @@ def get_selected_class_name(
     return f"cls-{cls_id}"
 
 
-def is_inside(
-    node,
-    ancestor
-):
-    parent = getattr(
-        node,
-        "parent",
-        None
-    )
-
-    while parent is not None:
-
-        if parent is ancestor:
-            return True
-
-        parent = getattr(
-            parent,
-            "parent",
-            None
-        )
-
-    return False
-
-
 def is_subject_tag(tag):
     """
     באתר שם המקצוע מודגש.
@@ -329,151 +305,30 @@ def subject_tags_in_cell(cell):
     return unique
 
 
-def text_after_subject(
-    subject_tag,
-    cell,
-    subject_tags
-):
+MARKER = "\u241E"
+
+# קוד כיתה "נקי": ט/י/יא/יב + מספר.
+# משמש כדי להסיר תוספות כמו "חנם" או שם מחנך
+# שמופיעים לפעמים אחרי שם הכיתה ברשימת הבחירה.
+CLASS_CODE_RE = re.compile(
+    r"^(יא|יב|ט|י)\d{1,2}"
+)
+
+
+def normalize_class_code(text):
     """
-    מחזיר את קטעי הטקסט אחרי המקצוע ועד המקצוע המודגש הבא.
-
-    לדוגמה:
-        subject_tag = אנגלית
-
-    chunks:
-        ["(ט3)", "דה בוק ליאור"]
-    """
-
-    other_subjects = {
-        id(x)
-        for x in subject_tags
-        if x is not subject_tag
-    }
-
-    chunks = []
-
-    for node in subject_tag.next_elements:
-
-        # יצאנו מהתא
-        if not is_inside(
-            node,
-            cell
-        ) and node is not cell:
-            break
-
-        if isinstance(
-            node,
-            Tag
-        ):
-
-            # הגענו למקצוע הבא
-            if id(node) in other_subjects:
-                break
-
-            continue
-
-        if not isinstance(
-            node,
-            NavigableString
-        ):
-            continue
-
-        # לא לקחת את הטקסט שבתוך תג המקצוע עצמו
-        if is_inside(
-            node,
-            subject_tag
-        ):
-            continue
-
-        text = clean(
-            str(node)
-        )
-
-        if not text:
-            continue
-
-        # מניעת כפילויות טקסט רצופות
-        if (
-            chunks
-            and chunks[-1] == text
-        ):
-            continue
-
-        chunks.append(text)
-
-    return chunks
-
-
-def parse_lesson_after_subject(
-    subject_tag,
-    cell,
-    subject_tags
-):
-    """
-    פענוח שיעור בודד:
-
-    מקצוע מודגש
-    (חדר/כיתה) - אופציונלי
-    שם המורה
+    מנקה שם כיתה מתוספות טקסט (למשל "ט11 חנם" -> "ט11").
+    אם הטקסט לא תואם דפוס כיתה מוכר, מוחזר כמו שהוא.
     """
 
-    subject = clean(
-        subject_tag.get_text(
-            " ",
-            strip=True
-        )
-    )
+    text = clean(text)
 
-    chunks = text_after_subject(
-        subject_tag,
-        cell,
-        subject_tags
-    )
+    match = CLASS_CODE_RE.match(text)
 
-    classroom = ""
-    teacher = ""
+    if match:
+        return match.group(0)
 
-    for text in chunks:
-
-        # טקסט שהוא רק סוגריים = כיתת לימוד
-        room_match = re.fullmatch(
-            r"\(([^()]*)\)",
-            text
-        )
-
-        if (
-            room_match
-            and not classroom
-        ):
-            classroom = clean(
-                room_match.group(1)
-            )
-            continue
-
-        # לפעמים ה-HTML מפצל את הסוגריים
-        # אבל הטקסט עדיין מתחיל/נגמר בהם.
-        if (
-            text.startswith("(")
-            and text.endswith(")")
-            and not classroom
-        ):
-            classroom = clean(
-                text[1:-1]
-            )
-            continue
-
-        # הדבר הראשון שאינו סוגריים הוא שם המורה
-        teacher = text
-        break
-
-    if not teacher:
-        return None
-
-    return {
-        "subject": subject,
-        "teacher": teacher,
-        "classroom": classroom,
-    }
+    return text
 
 
 def extract_items_from_cell(
@@ -481,30 +336,108 @@ def extract_items_from_cell(
     source_class
 ):
     """
-    חילוץ כל זוגות המקצוע/מורה מתוך תא.
+    חילוץ כל השיעורים מתוך תא, על בסיס מבנה ה-DOM בפועל:
+
+        <b>מקצוע</b> (כיתת לימוד - אופציונלי) שם המורה
+
+    כמה שיעורים מקבילים יכולים להופיע ברצף באותו תא.
+    השיטה: מוצאים את כל תגיות המקצוע המודגשות (לפי
+    subject_tags_in_cell), ואז מפרסרים מחדש עותק עצמאי
+    של אותו תא כדי להכניס סמן ייחודי ממש לפני כל תגית
+    מקצוע. פיצול הטקסט המלא של התא לפי הסמן נותן לנו,
+    בדיוק ובלי ניחושים, את כל הטקסט ששייך לכל שיעור
+    (המקצוע + מה שבא אחריו עד השיעור המקביל הבא).
     """
 
-    subjects = subject_tags_in_cell(
+    original_subjects = subject_tags_in_cell(
         cell
     )
 
-    items = []
+    if not original_subjects:
+        return []
 
-    for subject_tag in subjects:
+    # פרסור טרי ועצמאי של אותו תא, כדי שאפשר יהיה
+    # להוסיף סמנים בלי לגעת בעץ המקורי של הדף.
+    work = BeautifulSoup(
+        str(cell),
+        "html.parser"
+    )
 
-        lesson = parse_lesson_after_subject(
-            subject_tag,
-            cell,
-            subjects
+    work_subjects = subject_tags_in_cell(
+        work
+    )
+
+    # אם מספר תגיות המקצוע לא תואם, המבנה לא כפי
+    # שציפינו לו - עדיף לוותר על התא הזה בבטחה
+    # מאשר לנחש.
+    if len(work_subjects) != len(original_subjects):
+        return []
+
+    for tag in work_subjects:
+        tag.insert_before(
+            MARKER
         )
 
-        if not lesson:
+    full_text = work.get_text(
+        " ",
+        strip=True
+    )
+
+    groups = [
+        clean(part)
+        for part in full_text.split(MARKER)
+        if clean(part)
+    ]
+
+    if len(groups) != len(work_subjects):
+        return []
+
+    items = []
+
+    for subject_tag, group_text in zip(
+        work_subjects,
+        groups
+    ):
+
+        subject = clean(
+            subject_tag.get_text(
+                " ",
+                strip=True
+            )
+        )
+
+        # group_text מתחיל תמיד בטקסט המקצוע עצמו,
+        # כי הסמן הוכנס ממש לפניו.
+        if not group_text.startswith(subject):
+            continue
+
+        remainder = clean(
+            group_text[len(subject):]
+        )
+
+        classroom = ""
+        teacher = remainder
+
+        room_match = re.match(
+            r"^\(([^()]+)\)\s*(.*)$",
+            remainder
+        )
+
+        if room_match:
+            classroom = clean(
+                room_match.group(1)
+            )
+            teacher = clean(
+                room_match.group(2)
+            )
+
+        if not teacher:
             continue
 
         items.append({
-            "subject": lesson["subject"],
-            "teacher": lesson["teacher"],
-            "classroom": lesson["classroom"],
+            "subject": subject,
+            "teacher": teacher,
+            "classroom": classroom,
 
             # הכיתה שאת המערכת שלה אנו קוראים
             "sourceClass": source_class,
@@ -533,9 +466,11 @@ def parse_page(
     if "מערכת שעות" not in page_text:
         return None
 
-    source_class = get_selected_class_name(
-        soup,
-        cls_id
+    source_class = normalize_class_code(
+        get_selected_class_name(
+            soup,
+            cls_id
+        )
     )
 
     tables = soup.find_all(
