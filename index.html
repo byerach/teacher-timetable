@@ -30,10 +30,18 @@
 
     <section id="teacherView" class="view active">
       <div class="toolbar card">
-        <label for="teacherSelect">בחרו מורה</label>
-        <div class="teacher-picker">
-          <input id="teacherSearch" type="search" placeholder="חיפוש לפי שם מורה…" autocomplete="off" />
-          <select id="teacherSelect" aria-label="בחירת מורה"></select>
+        <label for="teacherSearch">בחרו מורה</label>
+        <div class="combobox" id="teacherCombobox">
+          <input
+            id="teacherSearch"
+            type="text"
+            placeholder="הקלידו שם מורה, או לחצו לבחירה מרשימה…"
+            autocomplete="off"
+            role="combobox"
+            aria-expanded="false"
+            aria-controls="teacherOptions"
+          />
+          <div id="teacherOptions" class="combobox-list hidden" role="listbox"></div>
         </div>
       </div>
 
