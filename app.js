@@ -125,33 +125,77 @@ async function loadData(){
     records.map(r=>r.teacher).filter(Boolean)
   )].sort(naturalSort);
 
-  populateTeacherSelect();
   renderChecklist();
 
   if(teachers.length){
     selectedTeacher = teachers[0];
-    $('#teacherSelect').value = selectedTeacher;
+    $('#teacherSearch').value = selectedTeacher;
     renderTeacher();
   }else{
     renderEmptyTeacher();
   }
 }
 
-function populateTeacherSelect(filter=''){
-  const cur = $('#teacherSelect').value;
+let teacherActiveIndex = -1;
+
+function teacherOptionsFiltered(filter=''){
   const q = filter.trim();
+  return teachers.filter(t => !q || t.includes(q));
+}
 
-  const list = teachers.filter(
-    t => !q || t.includes(q)
-  );
+function renderTeacherOptions(filter=''){
+  const list = teacherOptionsFiltered(filter);
 
-  $('#teacherSelect').innerHTML = list
-    .map(t=>`<option value="${esc(t)}">${esc(t)}</option>`)
-    .join('');
+  teacherActiveIndex = -1;
 
-  if(list.includes(cur)){
-    $('#teacherSelect').value = cur;
+  const box = $('#teacherOptions');
+
+  if(!list.length){
+    box.innerHTML = `<div class="combobox-empty">לא נמצאו מורים</div>`;
+    return;
   }
+
+  box.innerHTML = list.map(t=>`
+    <div
+      class="combobox-option${t === selectedTeacher ? ' active' : ''}"
+      role="option"
+      data-teacher="${esc(t)}"
+    >${esc(t)}</div>
+  `).join('');
+}
+
+function openTeacherOptions(){
+  renderTeacherOptions($('#teacherSearch').value);
+  $('#teacherOptions').classList.remove('hidden');
+  $('#teacherSearch').setAttribute('aria-expanded','true');
+}
+
+function closeTeacherOptions(){
+  $('#teacherOptions').classList.add('hidden');
+  $('#teacherSearch').setAttribute('aria-expanded','false');
+}
+
+function moveTeacherActive(delta){
+  const options = $$('#teacherOptions .combobox-option');
+
+  if(!options.length) return;
+
+  teacherActiveIndex = (teacherActiveIndex + delta + options.length) % options.length;
+
+  options.forEach((el,i)=>{
+    el.classList.toggle('active', i === teacherActiveIndex);
+  });
+
+  options[teacherActiveIndex].scrollIntoView({block:'nearest'});
+}
+
+function pickTeacher(name){
+  if(!name) return;
+
+  selectedTeacher = name;
+  $('#teacherSearch').value = name;
+  closeTeacherOptions();
+  renderTeacher();
 }
 
 function recordsFor(teacher,day,hour){
@@ -236,11 +280,17 @@ function renderTeacher(){
           </td>
 
           ${DAYS.map(d=>`
-            <td>${cellLessons(recordsFor(t,d,p.hour))}</td>
+            <td class="teacher-slot" data-day="${esc(d)}" data-hour="${p.hour}">${cellLessons(recordsFor(t,d,p.hour))}</td>
           `).join('')}
         </tr>
       `).join('')}
     </tbody>`;
+
+  $$('#teacherTable td.teacher-slot').forEach(td=>{
+    td.addEventListener('click',()=>{
+      showTeacherSlot(t, td.dataset.day, Number(td.dataset.hour));
+    });
+  });
 }
 
 function renderEmptyTeacher(){
@@ -284,7 +334,12 @@ function renderChecklist(filter=''){
       }
 
       renderCommon();
-      renderChecklist($('#commonSearch').value);
+
+      // מנקים את החיפוש אחרי סימון, כדי שאפשר יהיה
+      // מיד לחפש ולסמן את המורה הבא בלי למחוק ידנית.
+      $('#commonSearch').value = '';
+      renderChecklist('');
+      $('#commonSearch').focus();
     });
   });
 }
@@ -397,6 +452,47 @@ function renderCommon(){
   }
 }
 
+function showTeacherSlot(teacher, day, hour){
+  const items = recordsFor(teacher, day, hour);
+
+  const p = periods.find(
+    x => Number(x.hour) === Number(hour)
+  );
+
+  $('#slotDetails').innerHTML = `
+    <h3>
+      ${esc(day)} · שעה ${hour}
+      ${p ? `(${esc(p.start)}–${esc(p.end)})` : ''}
+    </h3>
+
+    ${!items.length
+      ? `
+        <div class="person-detail free">
+          <strong>✅ ${esc(teacher)}</strong>
+          <small>פנוי/ה</small>
+        </div>
+      `
+      : items.map(i=>`
+          <div class="detail-lesson">
+            <div class="subject">${esc(i.subject || 'שיעור')}</div>
+
+            ${i.groups?.length
+              ? `<div class="group">תלמידים מ: ${esc(groupText(i.groups))}</div>`
+              : ''
+            }
+
+            ${i.classroom
+              ? `<div class="room">📍 ${esc(i.classroom)}</div>`
+              : ''
+            }
+          </div>
+        `).join('')
+    }
+  `;
+
+  $('#slotModal').classList.remove('hidden');
+}
+
 function showSlot(day,hour){
   const s = slotState(day,hour);
 
@@ -471,13 +567,53 @@ $$('.tab').forEach(b=>{
   });
 });
 
-$('#teacherSearch').addEventListener('input',e=>{
-  populateTeacherSelect(e.target.value);
+$('#teacherSearch').addEventListener('input', ()=>{
+  openTeacherOptions();
 });
 
-$('#teacherSelect').addEventListener('change',e=>{
-  selectedTeacher = e.target.value;
-  renderTeacher();
+$('#teacherSearch').addEventListener('focus', ()=>{
+  openTeacherOptions();
+});
+
+$('#teacherSearch').addEventListener('keydown', e=>{
+  const isOpen = !$('#teacherOptions').classList.contains('hidden');
+
+  if(e.key === 'ArrowDown'){
+    e.preventDefault();
+    if(!isOpen){
+      openTeacherOptions();
+    }else{
+      moveTeacherActive(1);
+    }
+  }else if(e.key === 'ArrowUp'){
+    e.preventDefault();
+    if(isOpen) moveTeacherActive(-1);
+  }else if(e.key === 'Enter'){
+    e.preventDefault();
+
+    const options = $$('#teacherOptions .combobox-option');
+
+    if(teacherActiveIndex >= 0 && options[teacherActiveIndex]){
+      pickTeacher(options[teacherActiveIndex].dataset.teacher);
+    }else{
+      const list = teacherOptionsFiltered($('#teacherSearch').value);
+      if(list.length === 1) pickTeacher(list[0]);
+    }
+  }else if(e.key === 'Escape'){
+    closeTeacherOptions();
+  }
+});
+
+$('#teacherOptions').addEventListener('click', e=>{
+  const opt = e.target.closest('.combobox-option');
+  if(!opt) return;
+  pickTeacher(opt.dataset.teacher);
+});
+
+document.addEventListener('click', e=>{
+  if(!$('#teacherCombobox').contains(e.target)){
+    closeTeacherOptions();
+  }
 });
 
 $('#commonSearch').addEventListener('input',e=>{
